@@ -101,6 +101,8 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
     def get_eps(self, *args, **kwargs):
         return self.inner_model(*args, **kwargs)
 
+    # NOTE noise is just gaussian noise torch.rand_like(). what's important is the * utils.append_dims(sigma, input.ndim)
+    # part. We add that amount of gaussian noise. utils.append_dims() just makes it so that sigma has input.ndim dimensions
     def loss(self, input, noise, sigma, **kwargs):
         c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)

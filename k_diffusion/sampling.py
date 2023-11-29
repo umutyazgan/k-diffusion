@@ -135,14 +135,23 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
     return x
 
 
+# TODO give the mask as a parameter to this.
 @torch.no_grad()
-def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
-    """Ancestral sampling with Euler method steps."""
+def sample_euler_ancestral(
+    model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, mask=None, input=None,
+):
+    """Ancestral sampling with Euler method steps.
+    NOTE This sampler adds a bit of noise after each denoising step.
+    """
     extra_args = {} if extra_args is None else extra_args
     noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
-        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        denoised = model(x, sigmas[i] * s_in, **extra_args)  # mask unaware prediction
+        unedited_noisy_latent = input + noise_sampler(sigmas[i], sigmas[i + 1]) * utils.append_dims(sigmas[i+1], input.ndim)
+        denoised = denoised * (1-mask) + unedited_noisy_latent * mask  # NOTE if this don't work, try to revert
+        # TODO Figure out how to get the noisy latent at this step without doing a "prediction".
+        # e.g if we are at step t, we need the image noised t times, not "denoised" until t
         sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta=eta)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
@@ -152,6 +161,12 @@ def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
         x = x + d * dt
         if sigmas[i + 1] > 0:
             x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
+        # x (or denoised?) is the mask unaware prediction at the current timestep
+        # TODO get the unedited noisy latent at this timestep.
+        # eg. if we are at step t:
+        # input is the encoded image without any noise
+        # NOTE this starts from sigma[0] and goes up to len(sigma). len(sigma) is 0 while
+        # sigma[0] is the max sigma.
     return x
 
 
